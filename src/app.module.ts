@@ -55,7 +55,7 @@ import { readFileSync } from 'node:fs';
           rejectUnauthorized: true,
         },
         autoLoadEntities: true,
-        synchronize: true,
+        synchronize: false,
         dropSchema: process.env.NODE_ENV === 'test',
       }),
       dataSourceFactory(options) {
