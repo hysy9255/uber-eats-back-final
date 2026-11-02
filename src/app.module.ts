@@ -19,6 +19,7 @@ import { MenuQueryModule } from './menu/menu.query-module';
 import { ReviewModule } from './review/review.module';
 import { UploadsController } from './uploads/uploads.controller';
 import { readFileSync } from 'node:fs';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { readFileSync } from 'node:fs';
     RestaurantQueryModule,
     MenuQueryModule,
     ReviewModule,
+    HealthModule,
   ],
   controllers: [UploadsController],
   providers: [],
