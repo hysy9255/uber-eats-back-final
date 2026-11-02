@@ -23,10 +23,11 @@ import { UploadsController } from './uploads/uploads.controller';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath:
-        process.env.NODE_ENV === 'test'
-          ? '.env.test'
-          : '.env.development.local',
+      // envFilePath:
+      //   process.env.NODE_ENV === 'test'
+      //     ? '.env.test'
+      //     : '.env.development.local',
+      envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
     }),
     JwtModule.registerAsync({
       global: true,
