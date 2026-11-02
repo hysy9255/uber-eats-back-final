@@ -1,0 +1,487 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Server } from 'http';
+import request from 'supertest';
+import { Repository } from 'typeorm';
+
+import { AppModule } from 'src/app.module';
+
+import {
+  UserEntity,
+  UserRole,
+} from 'src/user/infrastructure/orm-entities/user.entity';
+
+import { OwnerEntity } from 'src/owner/infrastructure/entities/owner.entity';
+
+import { RestaurantEntity } from 'src/restaurant/infrastructure/orm-entities/restaurant.orm-entity';
+
+import { CategoryEntity } from 'src/menu/infrastructure/entities/category.entity';
+import { DishEntity } from 'src/menu/infrastructure/entities/dish.enity';
+
+describe('OwnerMenuController E2E Test', () => {
+  let module: TestingModule;
+  let app: INestApplication;
+  let httpServer: Server;
+
+  let jwtService: JwtService;
+
+  let userRepo: Repository<UserEntity>;
+  let ownerRepo: Repository<OwnerEntity>;
+  let restaurantRepo: Repository<RestaurantEntity>;
+  let categoryRepo: Repository<CategoryEntity>;
+  let dishRepo: Repository<DishEntity>;
+
+  const restaurantAId = 'restaurant-a';
+  const restaurantBId = 'restaurant-b';
+
+  const ownerA = {
+    userId: 'user-a',
+    ownerId: 'owner-a',
+    email: 'owner-a@test.com',
+  };
+
+  const ownerB = {
+    userId: 'user-b',
+    ownerId: 'owner-b',
+    email: 'owner-b@test.com',
+  };
+
+  beforeAll(async () => {
+    module = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = module.createNestApplication();
+
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+
+    await app.init();
+
+    httpServer = app.getHttpServer() as Server;
+
+    jwtService = module.get(JwtService);
+
+    userRepo = module.get<Repository<UserEntity>>(
+      getRepositoryToken(UserEntity),
+    );
+
+    ownerRepo = module.get<Repository<OwnerEntity>>(
+      getRepositoryToken(OwnerEntity),
+    );
+
+    restaurantRepo = module.get<Repository<RestaurantEntity>>(
+      getRepositoryToken(RestaurantEntity),
+    );
+
+    categoryRepo = module.get<Repository<CategoryEntity>>(
+      getRepositoryToken(CategoryEntity),
+    );
+
+    dishRepo = module.get<Repository<DishEntity>>(
+      getRepositoryToken(DishEntity),
+    );
+  });
+
+  beforeEach(async () => {
+    await dishRepo.createQueryBuilder().delete().execute();
+    await categoryRepo.createQueryBuilder().delete().execute();
+    await restaurantRepo.createQueryBuilder().delete().execute();
+    await ownerRepo.createQueryBuilder().delete().execute();
+    await userRepo.createQueryBuilder().delete().execute();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const createOwnerWithRestaurant = async (props: {
+    userId: string;
+    ownerId: string;
+    email: string;
+    restaurantId: string;
+  }) => {
+    const user = await userRepo.save({
+      userId: props.userId,
+      email: props.email,
+      password: 'hashed-password',
+      role: UserRole.OWNER,
+      name: 'Test Owner',
+      phoneNumber: '01012345678',
+      profileImgUrl: null,
+    });
+
+    const owner = await ownerRepo.save({
+      ownerId: props.ownerId,
+      userId: user.userId,
+    });
+
+    await restaurantRepo.save({
+      restaurantId: props.restaurantId,
+      ownerId: owner.ownerId,
+
+      /*
+       * RestaurantEntity에 nullable: false 컬럼이 더 있다면
+       * 여기서 실제 필수값을 넣어줘야 한다.
+       *
+       * 예시:
+       *
+       * name: `Restaurant ${props.restaurantId}`,
+       * phoneNumber: '0212345678',
+       * address: 'Seoul',
+       * status: RestaurantStatus.OPEN,
+       */
+    });
+
+    /*
+     * 이 payload key는 네 AuthGuard가 읽는 형태와 같아야 한다.
+     *
+     * AuthGuard가 payload.userId를 읽으면 현재 코드 그대로.
+     * AuthGuard가 payload.sub를 읽으면 sub: user.userId로 바꿔.
+     */
+    return jwtService.sign({
+      userId: user.userId,
+      role: UserRole.OWNER,
+    });
+  };
+
+  const createCategory = async (
+    restaurantId: string,
+    token: string,
+    categoryName = 'Pizza',
+  ) => {
+    await request(httpServer)
+      .post(`/owner/restaurants/${restaurantId}/menu/categories`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        categoryName,
+      })
+      .expect(201);
+
+    return categoryRepo.findOneOrFail({
+      where: {
+        restaurantId,
+      },
+    });
+  };
+
+  const createDish = async (
+    restaurantId: string,
+    categoryId: string,
+    token: string,
+  ) => {
+    await request(httpServer)
+      .post(
+        `/owner/restaurants/${restaurantId}/menu/categories/${categoryId}/dishes`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        dishName: 'Margherita Pizza',
+        price: 15000,
+        description: 'Tomato sauce and mozzarella',
+        dishImgUrl: null,
+      })
+      .expect(201);
+
+    return dishRepo.findOneOrFail({
+      where: {
+        categoryId,
+      },
+    });
+  };
+
+  describe('POST /owner/restaurants/:restaurantId/menu/categories', () => {
+    it('토큰이 없으면 401을 반환한다', async () => {
+      await request(httpServer)
+        .post(`/owner/restaurants/${restaurantAId}/menu/categories`)
+        .send({
+          categoryName: 'Pizza',
+        })
+        .expect(401);
+    });
+
+    it('다른 owner의 restaurant에는 카테고리를 생성할 수 없고 403을 반환한다', async () => {
+      const ownerAToken = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      await createOwnerWithRestaurant({
+        ...ownerB,
+        restaurantId: restaurantBId,
+      });
+
+      await request(httpServer)
+        .post(`/owner/restaurants/${restaurantBId}/menu/categories`)
+        .set('Authorization', `Bearer ${ownerAToken}`)
+        .send({
+          categoryName: 'Pizza',
+        })
+        .expect(403);
+
+      const category = await categoryRepo.findOne({
+        where: {
+          restaurantId: restaurantBId,
+        },
+      });
+
+      expect(category).toBeNull();
+    });
+
+    it('본인 restaurant에는 카테고리를 생성한다', async () => {
+      const ownerAToken = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      await request(httpServer)
+        .post(`/owner/restaurants/${restaurantAId}/menu/categories`)
+        .set('Authorization', `Bearer ${ownerAToken}`)
+        .send({
+          categoryName: 'Pizza',
+        })
+        .expect(201);
+
+      const category = await categoryRepo.findOneOrFail({
+        where: {
+          restaurantId: restaurantAId,
+        },
+      });
+
+      expect(category.restaurantId).toBe(restaurantAId);
+      expect(category.name).toBe('pizza');
+    });
+  });
+
+  describe('PATCH /owner/restaurants/:restaurantId/menu/categories/:categoryId', () => {
+    it('본인 restaurant의 category 이름을 수정한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+
+      await request(httpServer)
+        .patch(
+          `/owner/restaurants/${restaurantAId}/menu/categories/${category.categoryId}`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          newCategoryName: 'Pasta',
+        })
+        .expect(200);
+
+      const updatedCategory = await categoryRepo.findOneOrFail({
+        where: {
+          categoryId: category.categoryId,
+        },
+      });
+
+      expect(updatedCategory.name).toBe('pasta');
+    });
+  });
+
+  describe('DELETE /owner/restaurants/:restaurantId/menu/categories/:categoryId', () => {
+    it('카테고리를 삭제하면 연결된 dish도 삭제한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+
+      await request(httpServer)
+        .post(
+          `/owner/restaurants/${restaurantAId}/menu/categories/${category.categoryId}/dishes/batch`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .send([
+          {
+            dishName: 'Margherita Pizza',
+            price: 15000,
+            description: 'Tomato sauce and mozzarella',
+            dishImgUrl: null,
+          },
+          {
+            dishName: 'Pepperoni Pizza',
+            price: 18000,
+            description: 'Pepperoni and mozzarella',
+            dishImgUrl: null,
+          },
+        ])
+        .expect(201);
+
+      await request(httpServer)
+        .delete(
+          `/owner/restaurants/${restaurantAId}/menu/categories/${category.categoryId}`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const deletedCategory = await categoryRepo.findOne({
+        where: {
+          categoryId: category.categoryId,
+        },
+      });
+
+      const deletedDishes = await dishRepo.find({
+        where: {
+          categoryId: category.categoryId,
+        },
+      });
+
+      expect(deletedCategory).toBeNull();
+      expect(deletedDishes).toEqual([]);
+    });
+  });
+
+  describe('POST /owner/restaurants/:restaurantId/menu/categories/:categoryId/dishes', () => {
+    it('본인 restaurant의 category에 dish를 추가한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+
+      await request(httpServer)
+        .post(
+          `/owner/restaurants/${restaurantAId}/menu/categories/${category.categoryId}/dishes`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          dishName: 'Margherita Pizza',
+          price: 15000,
+          description: 'Tomato sauce and mozzarella',
+          dishImgUrl: null,
+        })
+        .expect(201);
+
+      const dish = await dishRepo.findOneOrFail({
+        where: {
+          categoryId: category.categoryId,
+        },
+      });
+
+      expect(dish.name).toBe('margherita pizza');
+      expect(dish.price).toBe(15000);
+      expect(dish.description).toBe('Tomato sauce and mozzarella');
+      expect(dish.dishImgUrl).toBeNull();
+    });
+  });
+
+  describe('POST /owner/restaurants/:restaurantId/menu/categories/:categoryId/dishes/batch', () => {
+    it('본인 restaurant의 category에 여러 dish를 추가한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+
+      await request(httpServer)
+        .post(
+          `/owner/restaurants/${restaurantAId}/menu/categories/${category.categoryId}/dishes/batch`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .send([
+          {
+            dishName: 'Margherita Pizza',
+            price: 15000,
+            description: 'Tomato sauce and mozzarella',
+            dishImgUrl: null,
+          },
+          {
+            dishName: 'Pepperoni Pizza',
+            price: 18000,
+            description: 'Pepperoni and mozzarella',
+            dishImgUrl: 'https://example.com/pepperoni.jpg',
+          },
+        ])
+        .expect(201);
+
+      const dishes = await dishRepo.find({
+        where: {
+          categoryId: category.categoryId,
+        },
+      });
+
+      expect(dishes).toHaveLength(2);
+
+      expect(dishes.map((dish) => dish.name).sort()).toEqual([
+        'margherita pizza',
+        'pepperoni pizza',
+      ]);
+    });
+  });
+
+  describe('PATCH /owner/restaurants/:restaurantId/menu/dishes/:dishId', () => {
+    it('본인 restaurant의 dish를 수정한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+      const dish = await createDish(restaurantAId, category.categoryId, token);
+
+      await request(httpServer)
+        .patch(`/owner/restaurants/${restaurantAId}/menu/dishes/${dish.dishId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          dishName: 'Pepperoni Pizza',
+          price: 18000,
+          description: 'Pepperoni and mozzarella',
+          dishImgUrl: 'https://example.com/pepperoni.jpg',
+        })
+        .expect(200);
+
+      const updatedDish = await dishRepo.findOneOrFail({
+        where: {
+          dishId: dish.dishId,
+        },
+      });
+
+      expect(updatedDish.name).toBe('pepperoni pizza');
+      expect(updatedDish.price).toBe(18000);
+      expect(updatedDish.description).toBe('Pepperoni and mozzarella');
+      expect(updatedDish.dishImgUrl).toBe('https://example.com/pepperoni.jpg');
+    });
+  });
+
+  describe('DELETE /owner/restaurants/:restaurantId/menu/dishes/:dishId', () => {
+    it('본인 restaurant의 dish를 삭제한다', async () => {
+      const token = await createOwnerWithRestaurant({
+        ...ownerA,
+        restaurantId: restaurantAId,
+      });
+
+      const category = await createCategory(restaurantAId, token);
+
+      const dish = await createDish(restaurantAId, category.categoryId, token);
+
+      await request(httpServer)
+        .delete(
+          `/owner/restaurants/${restaurantAId}/menu/dishes/${dish.dishId}`,
+        )
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const deletedDish = await dishRepo.findOne({
+        where: {
+          dishId: dish.dishId,
+        },
+      });
+
+      expect(deletedDish).toBeNull();
+    });
+  });
+});
