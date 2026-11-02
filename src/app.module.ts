@@ -18,6 +18,7 @@ import { RestaurantQueryModule } from './restaurant/restaraurant.query-module';
 import { MenuQueryModule } from './menu/menu.query-module';
 import { ReviewModule } from './review/review.module';
 import { UploadsController } from './uploads/uploads.controller';
+import { readFileSync } from 'node:fs';
 
 @Module({
   imports: [
@@ -48,7 +49,11 @@ import { UploadsController } from './uploads/uploads.controller';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        ssl: true,
+        // ssl: true,
+        ssl: {
+          ca: readFileSync('/etc/ssl/certs/rds-global-bundle.pem', 'utf8'),
+          rejectUnauthorized: true,
+        },
         autoLoadEntities: true,
         synchronize: true,
         dropSchema: process.env.NODE_ENV === 'test',
