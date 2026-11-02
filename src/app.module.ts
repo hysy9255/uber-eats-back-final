@@ -48,6 +48,7 @@ import { UploadsController } from './uploads/uploads.controller';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
+        ssl: true,
         autoLoadEntities: true,
         synchronize: true,
         dropSchema: process.env.NODE_ENV === 'test',
