@@ -10,8 +10,11 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:5173',
-      'http://yhj-bucket-test.s3-website.ap-northeast-2.amazonaws.com',
+      'https://hyungjoon-yoon.click',
+      'https://www.hyungjoon-yoon.click',
     ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
 
