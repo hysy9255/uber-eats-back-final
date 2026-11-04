@@ -18,6 +18,7 @@ export class ReviewDTO {
 }
 
 export class DishDetailDTO {
+  restaurantId: string;
   restaurantName: string;
   logo: string | null;
   name: string;
@@ -28,6 +29,7 @@ export class DishDetailDTO {
   reviews: ReviewDTO[];
 
   constructor(
+    restaurantId: string,
     restaurantName: string,
     logo: string | null,
     name: string,
@@ -37,6 +39,7 @@ export class DishDetailDTO {
     avgRating: number | null,
     reviews: ReviewDTO[],
   ) {
+    this.restaurantId = restaurantId;
     this.restaurantName = restaurantName;
     this.logo = logo;
     this.name = name;
