@@ -217,7 +217,7 @@ export class MenuOrmReader implements MenuReader {
     const averageRating = roundRating(avgDishRating?.averageRating);
 
     return new DishDetailDTO(
-      entity.category.restaurant.profile.restaurantId,
+      entity.category.restaurant.restaurantId,
       entity.category.restaurant.profile.name,
       entity.category.restaurant.gallery.logo,
       entity.name,
